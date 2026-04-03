@@ -8,6 +8,7 @@ Included:
 - Redis-backed queue foundation
 - deterministic worker process
 - request trace IDs and structured JSON logging
+- discovery config registry and deterministic scraper runtime
 - isolated Docker Compose deployment for VPS use
 
 ## Services
@@ -34,6 +35,32 @@ The API binds to `127.0.0.1:${API_HOST_PORT}` only.
 - `POST /api/v1/leads`
 - `GET /api/v1/leads`
 - `POST /api/v1/leads/{lead_id}/enqueue-enrichment`
+- `GET /api/v1/discovery/sample-configs`
+- `POST /api/v1/discovery/configs`
+- `GET /api/v1/discovery/configs`
+- `POST /api/v1/discovery/preview`
+- `POST /api/v1/discovery/runs`
+- `GET /api/v1/discovery/runs`
+
+## Discovery Engine
+
+Phase 2 adds a deterministic discovery engine that accepts a directory URL plus a typed JSON scraper config.
+
+Supported listing extraction modes:
+
+- `css`: scrape repeated listing cards with CSS selectors
+- `json_ld_item_list`: scrape structured `application/ld+json` item lists
+
+Supported fetch modes:
+
+- `http`: direct HTML fetch
+- `browser`: headless Chromium fetch for directories that require client-side rendering or bot protection handling
+
+Bundled sample config templates are included for:
+
+- Clutch
+- Webflow Certified Partners
+- Shopify Partners Directory
 
 ## Deployment Shape
 

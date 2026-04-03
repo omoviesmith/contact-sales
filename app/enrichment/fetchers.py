@@ -144,7 +144,14 @@ def _extract_contact_form_url(pages: list[dict[str, Any]]) -> str | None:
     for page in pages:
         if page.get("has_form"):
             return page.get("url")
-    return by_type.get("contact", {}).get("url")
+    contact_page = by_type.get("contact")
+    if not contact_page:
+        return None
+    parsed = urlparse(contact_page.get("url") or "")
+    normalized_path = (parsed.path or "/").rstrip("/") or "/"
+    if normalized_path == "/":
+        return None
+    return contact_page.get("url")
 
 
 def _extract_portfolio_clients(pages: list[dict[str, Any]]) -> list[str]:

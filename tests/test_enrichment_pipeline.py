@@ -171,6 +171,29 @@ class EnrichmentPipelineTests(unittest.TestCase):
             requested_urls.index("https://acme.example/hire-us"),
         )
 
+    def test_root_fallback_does_not_count_as_contact_form_url_without_form(self):
+        homepage_html = "<html><head><title>Acme</title></head><body><a href='/about'>About</a></body></html>"
+
+        def fake_response(url, body, status=200):
+            response = Mock()
+            response.url = url
+            response.text = body
+            response.status_code = status
+            response.raise_for_status = Mock()
+            return response
+
+        def fake_get(url, timeout, allow_redirects):
+            if url == "https://acme.example":
+                return fake_response(url, homepage_html)
+            if url == "https://acme.example/about":
+                return fake_response(url, "<html><body>About page</body></html>")
+            raise requests.RequestException("missing")
+
+        with patch("requests.Session.get", side_effect=fake_get):
+            snapshot = fetch_website_snapshot("https://acme.example", timeout_seconds=10)
+
+        self.assertIsNone(snapshot["contact_form_url"])
+
     def test_founder_heading_false_positive_is_rejected(self):
         website_snapshot = {
             "pages": [

@@ -1,10 +1,13 @@
 import os
 import unittest
+from unittest.mock import Mock, patch
+
+import requests
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/test")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
-from app.enrichment.fetchers import resolve_company_website_url
+from app.enrichment.fetchers import fetch_website_snapshot, resolve_company_website_url
 from app.enrichment.parsers import build_enrichment_result
 
 
@@ -104,6 +107,69 @@ class EnrichmentPipelineTests(unittest.TestCase):
         self.assertTrue(result["dnc_recommended"])
         self.assertIn("no_solicitation", result["dnc_reason_codes"])
         self.assertEqual(result["structured_output"]["submission_status_recommendation"], "suppress")
+
+    def test_fetch_website_snapshot_tries_ordered_contact_paths(self):
+        homepage_html = "<html><head><title>Acme</title></head><body><a href='/about'>About</a></body></html>"
+        contact_html = "<html><head><title>Hire Us</title></head><body><form action='/submit'></form></body></html>"
+
+        def fake_response(url, body, status=200):
+            response = Mock()
+            response.url = url
+            response.text = body
+            response.status_code = status
+            response.raise_for_status = Mock()
+            return response
+
+        requested_urls = []
+
+        def fake_get(url, timeout, allow_redirects):
+            requested_urls.append(url)
+            if url == "https://acme.example":
+                return fake_response(url, homepage_html)
+            if url == "https://acme.example/about":
+                return fake_response(url, "<html><body>About page</body></html>")
+            if url == "https://acme.example/services":
+                raise requests.RequestException("missing")
+            if url == "https://acme.example/what-we-do":
+                raise requests.RequestException("missing")
+            if url == "https://acme.example/solutions":
+                raise requests.RequestException("missing")
+            if url == "https://acme.example/expertise":
+                raise requests.RequestException("missing")
+            if url in {
+                "https://acme.example/contact",
+                "https://acme.example/contact-us",
+                "https://acme.example/kontakt",
+                "https://acme.example/en/contact",
+                "https://acme.example/get-in-touch",
+                "https://acme.example/connect",
+                "https://acme.example/work-with-us",
+                "https://acme.example/hire-us",
+            }:
+                if url == "https://acme.example/hire-us":
+                    return fake_response(url, contact_html)
+                raise requests.RequestException("missing")
+            if url == "https://acme.example/portfolio":
+                raise requests.RequestException("missing")
+            if url == "https://acme.example/work":
+                raise requests.RequestException("missing")
+            if url == "https://acme.example/case-studies":
+                raise requests.RequestException("missing")
+            if url == "https://acme.example/projects":
+                raise requests.RequestException("missing")
+            if url == "https://acme.example/clients":
+                raise requests.RequestException("missing")
+            raise AssertionError(f"unexpected url {url}")
+
+        with patch("requests.Session.get", side_effect=fake_get):
+            snapshot = fetch_website_snapshot("https://acme.example", timeout_seconds=10)
+
+        self.assertEqual(snapshot["contact_form_url"], "https://acme.example/hire-us")
+        self.assertIn("https://acme.example/hire-us", requested_urls)
+        self.assertLess(
+            requested_urls.index("https://acme.example/contact"),
+            requested_urls.index("https://acme.example/hire-us"),
+        )
 
     def test_founder_heading_false_positive_is_rejected(self):
         website_snapshot = {

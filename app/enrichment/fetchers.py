@@ -37,7 +37,20 @@ BLOCKED_EXTERNAL_HOSTS = {
 KEYWORD_PATHS = {
     "about": ["/about", "/about-us", "/company", "/our-story"],
     "services": ["/services", "/what-we-do", "/solutions", "/expertise"],
-    "contact": ["/contact", "/contact-us", "/get-in-touch"],
+    "contact": [
+        "/contact",
+        "/contact-us",
+        "/kontakt",
+        "/en/contact",
+        "/get-in-touch",
+        "/connect",
+        "/work-with-us",
+        "/hire-us",
+        "/inquiry",
+        "/start-a-project",
+        "/brief",
+        "/",
+    ],
     "portfolio": ["/portfolio", "/work", "/case-studies", "/projects", "/clients"],
 }
 
@@ -205,17 +218,27 @@ def fetch_website_snapshot(website_url: str | None, *, timeout_seconds: int) -> 
 
     discovered_links = _discover_candidate_links(homepage_response.url, homepage_response.text)
     for page_type, fallback_paths in KEYWORD_PATHS.items():
-        candidate_url = discovered_links.get(page_type) or urljoin(homepage_response.url, fallback_paths[0])
-        if candidate_url.rstrip("/") in {url.rstrip("/") for url in fetched_urls}:
-            continue
-        try:
-            response = session.get(candidate_url, timeout=timeout_seconds, allow_redirects=True)
-            if response.status_code >= 400 or not _same_host(homepage_response.url, response.url):
+        candidate_urls: list[str] = []
+        discovered = discovered_links.get(page_type)
+        if discovered:
+            candidate_urls.append(discovered)
+        for fallback_path in fallback_paths:
+            fallback_url = urljoin(homepage_response.url, fallback_path)
+            if fallback_url not in candidate_urls:
+                candidate_urls.append(fallback_url)
+
+        for candidate_url in candidate_urls:
+            if candidate_url.rstrip("/") in {url.rstrip("/") for url in fetched_urls}:
                 continue
-            fetched_urls.append(response.url)
-            pages.append(_page_snapshot(response.url, page_type, response).to_dict())
-        except requests.RequestException:
-            continue
+            try:
+                response = session.get(candidate_url, timeout=timeout_seconds, allow_redirects=True)
+                if response.status_code >= 400 or not _same_host(homepage_response.url, response.url):
+                    continue
+                fetched_urls.append(response.url)
+                pages.append(_page_snapshot(response.url, page_type, response).to_dict())
+                break
+            except requests.RequestException:
+                continue
 
     return {
         "pages": pages,

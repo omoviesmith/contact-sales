@@ -26,6 +26,8 @@ Included:
 
 The API binds to `127.0.0.1:${API_HOST_PORT}` only.
 
+If you need browser-mode challenge solving for protected directories, set `CAPSOLVER_API_KEY` in `.env`.
+
 ## Key Endpoints
 
 - `GET /healthz`

@@ -1,7 +1,12 @@
 from pathlib import Path
+import os
 import unittest
 
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/test")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+
 from app.discovery.extractors import extract_css_items, extract_json_ld_items
+from app.discovery.fetchers import _page_looks_like_challenge
 from app.discovery.sample_configs import (
     CLUTCH_GENERIC_CONFIG,
     SHOPIFY_PARTNERS_CONFIG,
@@ -45,6 +50,16 @@ class DiscoveryEngineTests(unittest.TestCase):
         self.assertEqual(config.fetch.mode, "browser")
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["detail_url"], "https://clutch.co/profile/example-agency")
+
+    def test_challenge_detector_identifies_cloudflare_page(self):
+        class FakePage:
+            def title(self):
+                return "Just a moment..."
+
+            def content(self):
+                return "<html><body>cf-turnstile</body></html>"
+
+        self.assertTrue(_page_looks_like_challenge(FakePage()))
 
 
 if __name__ == "__main__":

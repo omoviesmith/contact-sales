@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     redis_url: str
     queue_name: str = "contact_sales:default"
     worker_poll_seconds: int = 3
+    capsolver_api_key: str | None = None
+    capsolver_poll_seconds: int = 3
+    capsolver_max_polls: int = 20
 
 
 settings = Settings()

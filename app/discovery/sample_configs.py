@@ -5,13 +5,13 @@ CLUTCH_GENERIC_CONFIG = {
     "fetch": {
         "mode": "browser",
         "timeout_seconds": 45,
-        "wait_for_selector": "a[href*='/profile/'], a[href*='/company/'], [data-testid='provider-card']",
+        "wait_for_selector": ".provider__title a[href*='/profile/']",
     },
     "listing": {
         "extraction_kind": "css",
-        "item_selector": "a[href*='/profile/'], a[href*='/company/']",
+        "item_selector": ".provider__title a[href*='/profile/']",
         "fields": {
-            "company_name": {"type": "text", "selector": "h3, .company_info h3, [class*='company']"},
+            "company_name": {"type": "text", "selector": ":scope"},
             "detail_url": {"type": "attr", "selector": ":scope", "attr": "href", "absolute_url": True},
         },
         "pagination": {"type": "query_param", "param": "page", "start_page": 1},

@@ -10,7 +10,7 @@ from app.db import Base, SessionLocal, engine
 from app.logging_utils import configure_logging, get_logger, trace_id_var
 from app.models import Lead
 from app.queue import get_redis_client
-from app.services import append_audit_log
+from app.services import append_audit_log, execute_enrichment
 
 
 configure_logging(settings.log_level)
@@ -25,9 +25,13 @@ def process_job(db: Session, payload: dict) -> None:
         if not lead:
             logger.warning("lead missing for job", extra={"extra_fields": {"job_id": payload["job_id"]}})
             return
-        lead.state = "enriched"
-        lead.status_reason = "phase_1_placeholder_worker_completed"
-        lead.updated_at = datetime.now(UTC)
+        if payload["type"] != "lead.enrichment":
+            logger.warning(
+                "unsupported job type",
+                extra={"extra_fields": {"job_id": payload["job_id"], "job_type": payload["type"]}},
+            )
+            return
+        result = execute_enrichment(db, lead=lead, trace_id=uuid.UUID(trace_id))
         append_audit_log(
             db,
             trace_id=uuid.UUID(trace_id),
@@ -35,12 +39,24 @@ def process_job(db: Session, payload: dict) -> None:
             campaign_id=lead.campaign_id,
             event_type="worker.job_completed",
             actor="worker",
-            payload={"job_id": payload["job_id"], "job_type": payload["type"]},
+            payload={
+                "job_id": payload["job_id"],
+                "job_type": payload["type"],
+                "enrichment_status": result.status,
+                "lead_state": lead.state,
+            },
         )
         db.commit()
         logger.info(
             "processed job",
-            extra={"extra_fields": {"job_id": payload["job_id"], "lead_id": str(lead.id), "new_state": lead.state}},
+            extra={
+                "extra_fields": {
+                    "job_id": payload["job_id"],
+                    "lead_id": str(lead.id),
+                    "new_state": lead.state,
+                    "enrichment_status": result.status,
+                }
+            },
         )
     finally:
         trace_id_var.reset(token)

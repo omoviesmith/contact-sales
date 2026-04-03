@@ -3,14 +3,18 @@ import uuid
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
+import requests
 from redis import Redis
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.discovery.engine import run_scraper
+from app.enrichment.fetchers import fetch_website_snapshot
+from app.enrichment.parsers import build_enrichment_result
+from app.enrichment.serper import SerperError, search_company_context
 from app.logging_utils import get_logger
-from app.models import AuditLog, Campaign, DiscoveryRun, Lead, ScraperConfig
+from app.models import AuditLog, Campaign, DiscoveryRun, Lead, LeadEnrichment, ScraperConfig
 from app.schemas import ScraperConfigPayload
 
 
@@ -116,7 +120,7 @@ def enqueue_enrichment_job(db: Session, redis_client: Redis, lead: Lead) -> dict
     job_id = str(uuid.uuid4())
     payload = {
         "job_id": job_id,
-        "type": "lead.enrichment_placeholder",
+        "type": "lead.enrichment",
         "lead_id": str(lead.id),
         "campaign_id": str(lead.campaign_id),
         "trace_id": str(lead.trace_id),
@@ -167,6 +171,21 @@ def list_discovery_runs(db: Session) -> list[DiscoveryRun]:
     return list(db.scalars(select(DiscoveryRun).order_by(DiscoveryRun.created_at.desc())))
 
 
+def list_lead_enrichments(db: Session, lead_id: uuid.UUID) -> list[LeadEnrichment]:
+    statement = select(LeadEnrichment).where(LeadEnrichment.lead_id == lead_id).order_by(LeadEnrichment.created_at.desc())
+    return list(db.scalars(statement))
+
+
+def get_latest_lead_enrichment(db: Session, lead_id: uuid.UUID) -> LeadEnrichment | None:
+    statement = (
+        select(LeadEnrichment)
+        .where(LeadEnrichment.lead_id == lead_id)
+        .order_by(LeadEnrichment.created_at.desc())
+        .limit(1)
+    )
+    return db.scalar(statement)
+
+
 def _normalize_candidate(candidate: dict) -> dict:
     normalized = {key: value for key, value in candidate.items() if value not in (None, "", [])}
     normalized["company_name"] = normalized.get("company_name") or "Unknown Company"
@@ -210,6 +229,99 @@ def preview_discovery(
     candidates = [_normalize_candidate(item) for item in raw_items]
     stats["candidates_normalized"] = len(candidates)
     return candidates, stats
+
+
+def preview_enrichment(*, lead: Lead) -> dict:
+    website_snapshot = fetch_website_snapshot(
+        lead.website_url,
+        timeout_seconds=settings.enrichment_timeout_seconds,
+    )
+    search_snapshot = search_company_context(company_name=lead.company_name, website_url=website_snapshot.get("resolved_website_url"))
+    enrichment = build_enrichment_result(
+        company_name=lead.company_name,
+        website_snapshot=website_snapshot,
+        search_snapshot=search_snapshot,
+    )
+    return {
+        "lead_id": lead.id,
+        "trace_id": lead.trace_id,
+        "status": "completed",
+        "website_snapshot": website_snapshot,
+        "search_snapshot": search_snapshot,
+        **enrichment,
+    }
+
+
+def execute_enrichment(db: Session, *, lead: Lead, trace_id: uuid.UUID) -> LeadEnrichment:
+    lead.state = "enrichment_pending"
+    lead.updated_at = datetime.now(UTC)
+    db.flush()
+
+    try:
+        preview = preview_enrichment(lead=lead)
+        record = LeadEnrichment(
+            trace_id=trace_id,
+            lead_id=lead.id,
+            campaign_id=lead.campaign_id,
+            status=preview["status"],
+            website_snapshot=preview["website_snapshot"],
+            search_snapshot=preview["search_snapshot"],
+            structured_output=preview["structured_output"],
+            field_confidence=preview["field_confidence"],
+            dnc_recommended=preview["dnc_recommended"],
+            dnc_reason_codes=preview["dnc_reason_codes"],
+            priority_score=preview["priority_score"],
+            priority_reasons=preview["priority_reasons"],
+        )
+        db.add(record)
+        db.flush()
+
+        lead.confidence_summary = preview["confidence_summary"]
+        lead.last_agent_decision = preview["last_agent_decision"]
+        lead.status_reason = "enrichment_completed"
+        lead.state = "suppressed" if preview["dnc_recommended"] else "enriched"
+        lead.updated_at = datetime.now(UTC)
+
+        append_audit_log(
+            db,
+            trace_id=trace_id,
+            lead_id=lead.id,
+            campaign_id=lead.campaign_id,
+            event_type="lead.enrichment_completed",
+            actor="enrichment_pipeline",
+            payload={
+                "lead_enrichment_id": str(record.id),
+                "dnc_recommended": preview["dnc_recommended"],
+                "priority_score": preview["priority_score"],
+            },
+        )
+        db.commit()
+        db.refresh(record)
+        return record
+    except (requests.RequestException, SerperError, ValueError) as exc:
+        record = LeadEnrichment(
+            trace_id=trace_id,
+            lead_id=lead.id,
+            campaign_id=lead.campaign_id,
+            status="failed",
+            failure_reason=str(exc),
+        )
+        db.add(record)
+        lead.state = "enrichment_failed"
+        lead.status_reason = str(exc)
+        lead.updated_at = datetime.now(UTC)
+        append_audit_log(
+            db,
+            trace_id=trace_id,
+            lead_id=lead.id,
+            campaign_id=lead.campaign_id,
+            event_type="lead.enrichment_failed",
+            actor="enrichment_pipeline",
+            payload={"error": str(exc)},
+        )
+        db.commit()
+        db.refresh(record)
+        return record
 
 
 def execute_discovery_run(

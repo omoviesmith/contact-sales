@@ -23,7 +23,9 @@ from app.schemas import (
     DiscoveryPreviewResponse,
     DiscoveryRunRead,
     DiscoveryRunRequest,
+    EnrichmentPreviewResponse,
     LeadCreate,
+    LeadEnrichmentRead,
     LeadRead,
     QueueJobRead,
     ScraperConfigPayload,
@@ -36,12 +38,16 @@ from app.services import (
     create_scraper_config,
     enqueue_enrichment_job,
     execute_discovery_run,
+    execute_enrichment,
     get_lead,
+    get_latest_lead_enrichment,
     get_scraper_config,
     list_campaigns,
     list_discovery_runs,
+    list_lead_enrichments,
     list_leads,
     list_scraper_configs,
+    preview_enrichment,
     preview_discovery,
 )
 
@@ -140,6 +146,41 @@ def enqueue_enrichment_endpoint(lead_id: uuid.UUID, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail="lead not found")
     redis_client = get_redis_client()
     return enqueue_enrichment_job(db, redis_client, lead)
+
+
+@app.post("/api/v1/leads/{lead_id}/enrichment/preview", response_model=EnrichmentPreviewResponse)
+def preview_enrichment_endpoint(lead_id: uuid.UUID, db: Session = Depends(get_db)):
+    lead = get_lead(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead not found")
+    return preview_enrichment(lead=lead)
+
+
+@app.post("/api/v1/leads/{lead_id}/enrichment/run", response_model=LeadEnrichmentRead, status_code=201)
+def execute_enrichment_endpoint(request: Request, lead_id: uuid.UUID, db: Session = Depends(get_db)):
+    lead = get_lead(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead not found")
+    return execute_enrichment(db, lead=lead, trace_id=uuid.UUID(request.state.trace_id))
+
+
+@app.get("/api/v1/leads/{lead_id}/enrichments", response_model=list[LeadEnrichmentRead])
+def list_lead_enrichments_endpoint(lead_id: uuid.UUID, db: Session = Depends(get_db)):
+    lead = get_lead(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead not found")
+    return list_lead_enrichments(db, lead_id)
+
+
+@app.get("/api/v1/leads/{lead_id}/enrichment/latest", response_model=LeadEnrichmentRead)
+def get_latest_lead_enrichment_endpoint(lead_id: uuid.UUID, db: Session = Depends(get_db)):
+    lead = get_lead(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="lead not found")
+    enrichment = get_latest_lead_enrichment(db, lead_id)
+    if not enrichment:
+        raise HTTPException(status_code=404, detail="lead enrichment not found")
+    return enrichment
 
 
 @app.get("/api/v1/discovery/sample-configs")

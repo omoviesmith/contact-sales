@@ -47,6 +47,7 @@ class Lead(Base):
 
     campaign: Mapped["Campaign"] = relationship(back_populates="leads")
     audit_events: Mapped[list["AuditLog"]] = relationship(back_populates="lead")
+    enrichments: Mapped[list["LeadEnrichment"]] = relationship(back_populates="lead")
 
 
 class AuditLog(Base):
@@ -95,3 +96,26 @@ class DiscoveryRun(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     campaign: Mapped[Campaign] = relationship(back_populates="discovery_runs")
+
+
+class LeadEnrichment(Base):
+    __tablename__ = "lead_enrichments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    trace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    lead_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("leads.id"), nullable=False)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="completed", nullable=False)
+    website_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    search_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    structured_output: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    field_confidence: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    dnc_recommended: Mapped[bool] = mapped_column(default=False, nullable=False)
+    dnc_reason_codes: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    priority_score: Mapped[float | None] = mapped_column(Float)
+    priority_reasons: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    lead: Mapped[Lead] = relationship(back_populates="enrichments")

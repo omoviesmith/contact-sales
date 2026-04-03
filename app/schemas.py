@@ -47,6 +47,55 @@ class LeadRead(BaseModel):
     updated_at: datetime
 
 
+class LeadEnrichmentStructuredData(BaseModel):
+    founder_name: str | None = None
+    company_niche: str | None = None
+    service_categories: list[str] = Field(default_factory=list)
+    partner_client: str | None = None
+    client_issues: list[str] = Field(default_factory=list)
+    total_num_issues: int = 0
+    personalization_context: str | None = None
+    do_not_contact_signal: bool = False
+    submission_status_recommendation: str = "review"
+
+
+class LeadEnrichmentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    trace_id: uuid.UUID
+    lead_id: uuid.UUID
+    campaign_id: uuid.UUID
+    status: str
+    website_snapshot: dict
+    search_snapshot: dict
+    structured_output: dict
+    field_confidence: dict
+    dnc_recommended: bool
+    dnc_reason_codes: list[str]
+    priority_score: float | None
+    priority_reasons: list[str]
+    failure_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EnrichmentPreviewResponse(BaseModel):
+    lead_id: uuid.UUID
+    trace_id: uuid.UUID
+    status: str
+    website_snapshot: dict
+    search_snapshot: dict
+    structured_output: LeadEnrichmentStructuredData
+    field_confidence: dict
+    confidence_summary: dict
+    last_agent_decision: dict
+    dnc_recommended: bool
+    dnc_reason_codes: list[str]
+    priority_score: float | None
+    priority_reasons: list[str]
+
+
 class QueueJobRead(BaseModel):
     job_id: str
     queue_name: str

@@ -6,6 +6,13 @@ CLUTCH_GENERIC_CONFIG = {
         "mode": "browser",
         "timeout_seconds": 45,
         "wait_for_selector": ".provider__title a[href*='/profile/']",
+        "wait_for_selector_any": [
+            ".provider__title a[href*='/profile/']",
+            "h3 a[href*='/profile/']",
+            "a.directory_profile[href*='/profile/']",
+        ],
+        "challenge_retries": 2,
+        "post_solve_wait_seconds": 3.0,
     },
     "listing": {
         "extraction_kind": "css",

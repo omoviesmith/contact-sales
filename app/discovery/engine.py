@@ -17,7 +17,7 @@ def _build_page_url(directory_url: str, config: ScraperConfigPayload, page_numbe
 
 def _fetch_html(directory_url: str, config: ScraperConfigPayload) -> str:
     if config.fetch.mode == "browser":
-        return fetch_browser(directory_url, config.fetch.timeout_seconds, config.fetch.wait_for_selector)
+        return fetch_browser(directory_url, config.fetch)
     return fetch_http(directory_url, config.fetch.timeout_seconds)
 
 

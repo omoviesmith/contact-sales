@@ -118,6 +118,17 @@ class FetchConfig(BaseModel):
     mode: str = Field(default="http", pattern="^(http|browser)$")
     timeout_seconds: int = Field(default=30, ge=5, le=120)
     wait_for_selector: str | None = None
+    wait_for_selector_any: list[str] = Field(default_factory=list)
+    wait_for_state: str = Field(default="attached", pattern="^(attached|visible)$")
+    challenge_retries: int = Field(default=1, ge=0, le=3)
+    post_solve_wait_seconds: float = Field(default=2.0, ge=0.0, le=10.0)
+    soft_wait_for_ready: bool = True
+
+    @model_validator(mode="after")
+    def validate_ready_selectors(self) -> "FetchConfig":
+        if self.wait_for_selector and self.wait_for_selector not in self.wait_for_selector_any:
+            self.wait_for_selector_any.insert(0, self.wait_for_selector)
+        return self
 
 
 class ScraperConfigPayload(BaseModel):

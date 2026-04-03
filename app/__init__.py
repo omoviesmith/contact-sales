@@ -1,0 +1,1 @@
+"""Contact sales deterministic core."""

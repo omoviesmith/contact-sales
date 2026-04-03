@@ -1,0 +1,65 @@
+name: contact_sales_core
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: contact_sales_core_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8100}:8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: contact_sales_core_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: ["python", "-m", "app.worker"]
+
+  postgres:
+    image: postgres:16-bookworm
+    container_name: contact_sales_core_postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - contact_sales_core_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-bookworm
+    container_name: contact_sales_core_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - contact_sales_core_redis_data:/data
+
+volumes:
+  contact_sales_core_postgres_data:
+    name: contact_sales_core_postgres_data
+  contact_sales_core_redis_data:
+    name: contact_sales_core_redis_data

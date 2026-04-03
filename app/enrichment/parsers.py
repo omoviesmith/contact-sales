@@ -34,6 +34,16 @@ FOUNDER_PATTERNS = [
     r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),\s*(?:founder|co-founder|ceo|owner)",
 ]
 
+FOUNDER_STOPWORDS = {
+    "our services",
+    "our work",
+    "case studies",
+    "contact us",
+    "get in touch",
+    "learn more",
+    "read more",
+}
+
 ISSUE_KEYWORDS = {
     "slow_site": ["slow site", "performance", "page speed", "core web vitals"],
     "unclear_positioning": ["positioning", "messaging", "conversion", "copywriting"],
@@ -88,7 +98,12 @@ def infer_founder_name(text: str) -> tuple[str | None, float]:
     for pattern in FOUNDER_PATTERNS:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return match.group(1).strip(), 0.74
+            candidate = " ".join(match.group(1).split()).strip(" ,.-")
+            if candidate.lower() in FOUNDER_STOPWORDS:
+                continue
+            if not re.search(r"[A-Za-z]+\s+[A-Za-z]+", candidate):
+                continue
+            return candidate, 0.74
     return None, 0.25
 
 
@@ -137,12 +152,29 @@ def derive_partner_client(search_snapshot: dict[str, Any], text: str) -> tuple[s
     return None, 0.3
 
 
+def infer_key_client(website_snapshot: dict[str, Any], search_snapshot: dict[str, Any]) -> tuple[str | None, float]:
+    portfolio_clients = website_snapshot.get("portfolio_clients") or []
+    if portfolio_clients:
+        return portfolio_clients[0], 0.82
+    for result in search_snapshot.get("results", []):
+        for organic in (result.get("payload") or {}).get("organic", []):
+            text = " ".join(filter(None, [organic.get("title"), organic.get("snippet")]))
+            match = re.search(
+                r"(?:for|with|client|clients)\s+([A-Z][A-Za-z0-9&.'-]+(?:\s+[A-Z][A-Za-z0-9&.'-]+){0,3})",
+                text,
+            )
+            if match:
+                return " ".join(match.group(1).split()).strip(" ,.-"), 0.62
+    return None, 0.25
+
+
 def compute_priority_score(
     *,
     service_categories: list[str],
     company_niche: str | None,
     dnc_recommended: bool,
     website_snapshot: dict[str, Any],
+    company_contact_form_url: str | None,
 ) -> tuple[float, list[str]]:
     score = 20.0
     reasons = []
@@ -155,6 +187,9 @@ def compute_priority_score(
     if company_niche:
         score += 10
         reasons.append("niche_identified")
+    if company_contact_form_url:
+        score += 12
+        reasons.append("contact_form_detected")
     if dnc_recommended:
         score = max(0.0, score - 50)
         reasons.append("dnc_penalty")
@@ -172,6 +207,7 @@ def build_enrichment_result(
     company_niche, niche_confidence = infer_company_niche(text)
     service_categories, service_confidence = infer_service_categories(text)
     partner_client, partner_confidence = derive_partner_client(search_snapshot, text)
+    key_client, key_client_confidence = infer_key_client(website_snapshot, search_snapshot)
     client_issues, issues_confidence = infer_client_issues(text)
     personalization_context, personalization_confidence = build_personalization_context(
         company_name=company_name,
@@ -180,11 +216,14 @@ def build_enrichment_result(
         website_snapshot=website_snapshot,
     )
     dnc_recommended, dnc_reason_codes, dnc_confidence = detect_dnc(text)
+    company_contact_form_url = website_snapshot.get("contact_form_url")
+    contact_form_confidence = 0.92 if company_contact_form_url else 0.3
     priority_score, priority_reasons = compute_priority_score(
         service_categories=service_categories,
         company_niche=company_niche,
         dnc_recommended=dnc_recommended,
         website_snapshot=website_snapshot,
+        company_contact_form_url=company_contact_form_url,
     )
 
     field_confidence = {
@@ -192,6 +231,8 @@ def build_enrichment_result(
         "company_niche": niche_confidence,
         "service_categories": service_confidence,
         "partner_client": partner_confidence,
+        "key_client": key_client_confidence,
+        "company_contact_form_url": contact_form_confidence,
         "client_issues": issues_confidence,
         "personalization_context": personalization_confidence,
         "do_not_contact_signal": dnc_confidence,
@@ -202,6 +243,8 @@ def build_enrichment_result(
         "company_niche": company_niche,
         "service_categories": service_categories,
         "partner_client": partner_client,
+        "key_client": key_client,
+        "company_contact_form_url": company_contact_form_url,
         "client_issues": client_issues,
         "total_num_issues": len(client_issues),
         "personalization_context": personalization_context,
@@ -219,8 +262,9 @@ def build_enrichment_result(
         "last_agent_decision": {
             "enrichment_extraction": {
                 "mode": "deterministic_heuristic",
-                "usage_decision": "used",
+                "usage_decision": "requires_review" if founder_name is None else "used",
                 "confidence": overall,
+                "fallback_candidate_for_agent": founder_confidence < 0.85,
             },
             "dnc_classifier": {
                 "mode": "deterministic_heuristic",

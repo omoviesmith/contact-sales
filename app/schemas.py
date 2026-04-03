@@ -52,6 +52,8 @@ class LeadEnrichmentStructuredData(BaseModel):
     company_niche: str | None = None
     service_categories: list[str] = Field(default_factory=list)
     partner_client: str | None = None
+    key_client: str | None = None
+    company_contact_form_url: str | None = None
     client_issues: list[str] = Field(default_factory=list)
     total_num_issues: int = 0
     personalization_context: str | None = None

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.discovery.engine import run_scraper
-from app.enrichment.fetchers import fetch_website_snapshot
+from app.enrichment.fetchers import fetch_website_snapshot, resolve_company_website_url
 from app.enrichment.parsers import build_enrichment_result
 from app.enrichment.serper import SerperError, search_company_context
 from app.logging_utils import get_logger
@@ -232,8 +232,13 @@ def preview_discovery(
 
 
 def preview_enrichment(*, lead: Lead) -> dict:
+    resolved_website_url = resolve_company_website_url(
+        website_url=lead.website_url,
+        source_payload=lead.source_payload,
+        timeout_seconds=settings.enrichment_timeout_seconds,
+    )
     website_snapshot = fetch_website_snapshot(
-        lead.website_url,
+        resolved_website_url,
         timeout_seconds=settings.enrichment_timeout_seconds,
     )
     search_snapshot = search_company_context(company_name=lead.company_name, website_url=website_snapshot.get("resolved_website_url"))
@@ -248,6 +253,7 @@ def preview_enrichment(*, lead: Lead) -> dict:
         "status": "completed",
         "website_snapshot": website_snapshot,
         "search_snapshot": search_snapshot,
+        "resolved_website_url": resolved_website_url,
         **enrichment,
     }
 
@@ -276,6 +282,8 @@ def execute_enrichment(db: Session, *, lead: Lead, trace_id: uuid.UUID) -> LeadE
         db.add(record)
         db.flush()
 
+        if preview.get("resolved_website_url"):
+            lead.website_url = preview["resolved_website_url"]
         lead.confidence_summary = preview["confidence_summary"]
         lead.last_agent_decision = preview["last_agent_decision"]
         lead.status_reason = "enrichment_completed"
